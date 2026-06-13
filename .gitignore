@@ -6,6 +6,7 @@
 # Quarto render output
 /.quarto/
 *_files/
+StatR_testing.html
 
 # heruntergeladene Daten und Build-Artefakte (holt/erzeugt der Code)
 data/
