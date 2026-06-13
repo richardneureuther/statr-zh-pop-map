@@ -1,0 +1,12 @@
+# R / RStudio
+.Rproj.user/
+.Rhistory
+.RData
+
+# Quarto render output
+/.quarto/
+*_files/
+
+# heruntergeladene Daten und Build-Artefakte (holt/erzeugt der Code)
+data/
+statR.tar.gz

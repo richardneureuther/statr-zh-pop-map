@@ -1,0 +1,209 @@
+---
+title: "Population of Kanton Zürich with statR and OGD data"
+format:   
+  html:
+    embed-resources: true
+editor: visual
+---
+
+## Testing the statR package
+
+This is a small analysis to familiarize myself with some of the functionalities of the statR package as well as the OGD data of the statistical office of the canton of Zurich. I visualize the 2025 population data of the municipalities of the canton of Zurich as a map.  
+
+```{r}
+#| eval: false
+
+#install statR from GitHub (only once)
+install.packages("downloader")
+library(downloader)
+
+download("https://github.com/statistikZH/statR/archive/refs/heads/master.tar.gz", "statR.tar.gz")
+install.packages("statR.tar.gz", repos = NULL, type = "source")
+
+```
+
+```{r}
+#| message: false
+# install relevant packages 
+# needed only once, add all packages you do not have installed
+# install.packages(c("sf", "tidyverse","scales")) 
+
+#load packages
+library(sf)
+library(tidyverse)
+library(statR)
+library(scales)
+
+```
+
+```{r}
+#| label: load-geodata-municipalities
+#| message: false
+#| warning: false
+
+# Load shape file for the "Gemeindegrenzen" of the canton Zurich
+
+# create directory and load shape data. I use the 2020 shape files like in the statR documentation. 
+dir.create("data", showWarnings = FALSE)
+if (!dir.exists("data/GEN_A4_GEMEINDEN_2020_shp")) {
+  download.file(
+    "https://www.web.statistik.zh.ch/ogd/daten/ressourcen/KTZH_00000151_00001653.zip",
+    "data/geodata.zip", mode = "wb"        
+  )
+  unzip("data/geodata.zip", exdir = "data")
+}
+
+muni <- st_read("data/GEN_A4_GEMEINDEN_2020_shp", quiet = TRUE)
+
+#check names
+names(muni)  
+```
+
+```{r}
+#| label: load-population-data
+#| message: false
+
+# Population data from the OGD catalouge of the canton zurich 
+pop_url <- "https://www.web.statistik.zh.ch/ogd/data/KANTON_ZUERICH_133.csv"
+
+#read population data
+pop_raw <- read.csv(pop_url, fileEncoding = "UTF-8")
+names(pop_raw) #check column names
+
+#check latest available year
+year <- max(pop_raw$INDIKATOR_JAHR, na.rm = TRUE)
+year
+```
+
+```{r}
+#| label: prepare-population-data
+
+# aggregate population  data for the latest year available 
+pop_gem <- pop_raw %>%
+  filter(INDIKATOR_JAHR == year) %>%
+  group_by(bfs = as.character(BFS_NR)) %>%
+  summarise(bevoelkerung = sum(INDIKATOR_VALUE, na.rm = TRUE), .groups = "drop")
+```
+
+```{r}
+#| label: join-data
+
+# Join population data with the geodata
+gemeinden_pop <- muni%>%
+  mutate(bfs = as.character(BFS)) %>%
+  left_join(pop_gem, by = "bfs")
+```
+
+```{r}
+#| label: color-palette-all
+#check all available scales to select a nice one for the visualisations
+display.statcol.all()  
+```
+
+```{r}
+#| label: color-palette-blue
+
+#check the available zueri blue color grades in the statR package
+show_col(zhpal$zhblue)
+```
+
+```{r}
+#| label: histogram-bevoelkerung
+#| message: false
+#| warning: false
+
+# Summary statistics of the population variable
+summary(gemeinden_pop$bevoelkerung)
+
+# plot the distribution of the population variable
+barfill <- "#3F8AB4" # use second darkest zueri blue
+ggplot(gemeinden_pop %>% filter(!is.na(bevoelkerung)),
+       aes(x = bevoelkerung)) +
+  geom_histogram(bins = 60, fill = barfill, color = "white") +
+  scale_x_continuous(labels = scales::label_number(big.mark = "'")) +
+  labs(
+    title    = "Verteilung der Gemeindebevölkerung 2025",
+    subtitle = "Kanton Zürich – Anzahl Gemeinden je Grössenklasse",
+    x = "Einwohner pro Gemeinde", y = "Anzahl Gemeinden",
+    caption  = "Quelle: Statistisches Amt Kanton Zürich (OGD)"
+  ) +
+  theme_stat()
+```
+
+-\> Data is extremely right skewed. Log scale might be better for the visualisation.
+
+```{r}
+#| label: histogram-bevoelkerung-log
+#| message: false
+#| warning: false
+
+#check the distribution of the population variable on log scale
+ggplot(gemeinden_pop %>% filter(!is.na(bevoelkerung)),
+       aes(x = bevoelkerung)) +
+  geom_histogram(bins = 60, fill = barfill, color = "white") +
+  scale_x_log10(labels = scales::label_number(big.mark = "'")) +
+  labs(
+    title    = "Verteilung der Gemeindebevölkerung 2025 (log-Skala)",
+    subtitle = "Kanton Zürich",
+    x = "Einwohner pro Gemeinde (log10)", y = "Anzahl Gemeinden"
+  ) +
+  theme_stat()
+```
+
+-\> distribution is now much more normal, better for the visualisation
+
+```{r}
+#| label: map-canton-default
+#| fig-width: 7
+#| fig-height: 8
+#| message: false
+#| warning: false
+
+# plot map of the canton Zurich with the population data 
+ggplot(gemeinden_pop, aes(fill = bevoelkerung)) +
+  geom_sf(color = "white", linewidth = 0.1) +
+  scale_fill_gradientn(
+    colours  = rev(zhpal$zhblue), # zueri blue for color sclae 
+    name     = "Personen",
+    trans    = "log10", # transform scale, otherwise zuerich and winterthur dominate the color scale
+    breaks   = c(1000, 5000, 20000, 100000, max(gemeinden_pop$bevoelkerung, na.rm = TRUE)),     # max as upper limit
+    labels   = label_number(big.mark = "'"),
+    na.value = "#D8D2C8",
+    guide    = guide_colourbar(barheight = grid::unit(8, "cm")) 
+  ) +
+  labs(
+    title    = "Bevölkerung im Kanton Zürich (2025)",
+    subtitle = "nach Gemeinde · Farbskala logarithmisch (log10)",
+    caption  = "Quelle: Statistisches Amt Kanton Zürich (OGD) · Geodaten: GIS-ZH (Gemeinden 2020)"
+  ) +
+  theme_stat(map = TRUE)
+```
+
+```{r}
+#| label: map-canton-vibrant
+#| fig-width: 7
+#| fig-height: 8
+#| message: false
+#| warning: false
+
+# plot map of the canton Zurich with a more vibrant color scale
+ggplot(gemeinden_pop, aes(fill = bevoelkerung)) +
+  geom_sf(color = "white", linewidth = 0.1) +
+  scale_fill_gradientn(
+    colours  = rev(zhpal$zhbyg), # zhbyg color scale 
+    name     = "Personen",
+    trans    = "log10", 
+    breaks   = c(1000, 5000, 20000, 100000, max(gemeinden_pop$bevoelkerung, na.rm = TRUE)),     # max as upper limit
+    labels   = label_number(big.mark = "'"),
+    na.value = "#D8D2C8",
+    guide    = guide_colourbar(barheight = grid::unit(8, "cm")) 
+  ) +
+  labs(
+    title    = "Bevölkerung im Kanton Zürich (2025)",
+    subtitle = "nach Gemeinde · Farbskala logarithmisch (log10)",
+    caption  = "Quelle: Statistisches Amt Kanton Zürich (OGD) · Geodaten: GIS-ZH (Gemeinden 2020)"
+  ) +
+  theme_stat(map = TRUE)
+```
+
+-\> vibrant color scale is less elegant but does make the difference between similarly sized municipalities more immediately visible.
