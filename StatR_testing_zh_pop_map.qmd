@@ -180,7 +180,7 @@ ggplot(gemeinden_pop, aes(fill = bevoelkerung)) +
 ```
 
 ```{r}
-#| label: export map
+#| label: export-map
 #| eval: false
 
 # export map as png file
